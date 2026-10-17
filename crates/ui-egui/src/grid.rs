@@ -3450,3 +3450,5 @@ mod outline_band_tests {
         assert!(outline_bands(Rect::from_min_max(pos2(f32::NAN, 0.0), pos2(1.0, 1.0)), 2.0, clip).is_empty());
     }
 }
+
+Fix Persian dates and BiDi rendering
