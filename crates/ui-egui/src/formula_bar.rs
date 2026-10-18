@@ -44,7 +44,7 @@ pub fn show(app: &mut SheetApp, ui: &mut egui::Ui) {
                     editor_widget(app, &mut child, id, theme::ui_font(13.0), expanded, field.width() - 12.0);
                 } else {
                     // Show the active cell's content; clicking starts editing in the bar.
-                    let text = crate::grid::fix_bidi_for_harfrust(&active_input(app));
+                    let text = active_input(app);
                     let resp = child
                         .add(egui::Label::new(egui::RichText::new(text).font(theme::ui_font(13.0)).color(t.text)).truncate().sense(Sense::click()));
                     let click = child.interact(field, id.with("click"), Sense::click());
@@ -75,11 +75,13 @@ fn active_input(app: &SheetApp) -> String {
         }
         return if let Some(f) = &c.formula {
             let shown = crate::formula_locale::display(&c.input_text(), app.ui.language.formula_locale(), &d.wb, d.wb.active_sheet);
+            // A legacy array formula shows in braces (`{=A1:A2*2}`), as `Cell::bar_text` does.
             if f.array.is_some() { format!("{{{shown}}}") } else { shown }
         } else {
             gridcraft_engine::display::edit_text(&d.wb, sh, a)
         };
     }
+    // A spilled cell shows the anchor's formula greyed out in Excel; we show it plainly.
     for (anchor, r) in &sh.spill_ranges {
         if r.contains(a)
             && let Some(f) = sh.cell(*anchor).and_then(|c| c.formula.as_ref())
@@ -110,9 +112,13 @@ fn name_box(app: &mut SheetApp, ui: &mut egui::Ui, t: &Tokens) {
     }
     if resp.lost_focus() {
         if ui.input(|i| i.key_pressed(Key::Enter)) {
+            // The Enter that commits the Name Box is used up here. Left in the frame's input, the
+            // grid (drawn after the formula bar, and focused again now the box let go) would read
+            // it as its own Enter and move the active cell one row down from the jump target (#247).
             ui.input_mut(|i| i.events.retain(|e| !matches!(e, egui::Event::Key { key: Key::Enter, .. })));
             let target = text.trim().to_string();
             if !target.is_empty() && target != shown {
+                // A new name for the selection, or a place to go.
                 let is_ref = gridcraft_engine::core::RangeRef::parse(target.split('!').next_back().unwrap_or("")).is_some();
                 let known = app.session.active().is_some_and(|d| d.wb.name(&target, d.wb.active_sheet).is_some() || d.wb.table(&target).is_some());
                 let r = if is_ref || known {
@@ -129,6 +135,7 @@ fn name_box(app: &mut SheetApp, ui: &mut egui::Ui, t: &Tokens) {
         app.name_box = None;
     }
     ui.allocate_space(vec2(118.0, 24.0));
+    // Dropdown of names.
     let names: Vec<String> =
         app.session.active().map(|d| d.wb.names.iter().filter(|n| !n.hidden).map(|n| n.name.clone()).collect()).unwrap_or_default();
     let mb = Rect::from_min_size(pos2(rect.right() - 16.0, rect.top() + 4.0), vec2(14.0, 16.0));
@@ -147,9 +154,11 @@ fn name_box(app: &mut SheetApp, ui: &mut egui::Ui, t: &Tokens) {
     });
 }
 
+/// The text editor used in the cell and in the formula bar (they share `app.editor`).
 pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: FontId, multiline: bool, width: f32) {
     let Some(mut ed) = app.editor.take() else { return };
     let mine = ed.from_formula_bar == (id == egui::Id::new("gridcraft.formula_bar"));
+    // Keys the editor handles itself (before the TextEdit sees them), only where it has focus.
     let focused = ui.ctx().memory(|m| m.focused());
     let has_focus = focused == Some(id) || (mine && (ed.request_focus || focused.is_none()));
     let mut action: Option<(i64, i64, bool, bool)> = None;
@@ -164,6 +173,7 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
             let enter = i.consume_key(egui::Modifiers::NONE, Key::Enter) || i.consume_key(egui::Modifiers::SHIFT, Key::Enter);
             let tab = i.consume_key(egui::Modifiers::NONE, Key::Tab) || i.consume_key(egui::Modifiers::SHIFT, Key::Tab);
             let esc = i.consume_key(egui::Modifiers::NONE, Key::Escape);
+            // Backspace takes back the AutoComplete proposal (Excel's selected rest), not a typed character.
             if ed.completion.is_some() && i.consume_key(egui::Modifiers::NONE, Key::Backspace) {
                 ed.completion = None;
             }
@@ -198,6 +208,7 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
                 cancel = true;
             }
         }
+        // Arrow keys: autocomplete navigation, point mode, or (Enter mode) commit and move.
         let arrows = ui.input(|i| {
             (
                 i.key_pressed(Key::ArrowUp),
@@ -225,6 +236,7 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
             } else {
                 (0, 1)
             };
+            // Left/Right follow the screen on a right-to-left sheet.
             let rtl = app.session.active().and_then(|d| d.wb.active()).is_some_and(|s| s.right_to_left);
             let dc = if rtl { -dc } else { dc };
             if ed.can_point() {
@@ -239,10 +251,12 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
                 action = Some((dr, dc, false, false));
             }
         }
+        // F4 cycles $ anchors of the reference before the caret.
         if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::F4)) {
             cycle_anchor(&mut ed);
         }
     }
+    // The text widget.
     let refs = formula_refs(&ed.text);
     let text_color = Tokens::get(ui.ctx()).text;
     let cell_text_color = if id == egui::Id::new("gridcraft.cell_editor") { Color32::BLACK } else { text_color };
@@ -287,6 +301,7 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
         output.state.cursor.set_char_range(Some(egui::text::CCursorRange::one(cursor)));
         output.state.store(ui.ctx(), id);
     } else if resp.clicked() || resp.gained_focus() {
+        // Clicking into the other editor moves editing there.
         ed.from_formula_bar = id == egui::Id::new("gridcraft.formula_bar");
         ed.enter_mode = false;
         app.session.mode = gridcraft_engine::Mode::Edit;
@@ -319,6 +334,7 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
             gridcraft_engine::Mode::Edit
         };
     }
+    // Column AutoComplete: the rest of the suggested entry, shown selected after the caret.
     if let Some(full) = &ed.completion
         && let Some(rest) = crate::editor::completion_rest(full, &ed.text)
     {
@@ -332,8 +348,10 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
         ui.painter().rect_filled(r, 0.0, Color32::from_rgb(0x2E, 0x6F, 0xD8));
         ui.painter().galley(pos, g, Color32::WHITE);
     }
+    // Autocomplete list and argument hint under the editor.
     if mine && ui.is_rect_visible(resp.rect) && (!ed.autocomplete.is_empty() || ed.current_function().is_some()) {
         let below = resp.rect.left_bottom() + vec2(0.0, 4.0);
+        // Areas have their own clip rect: keep cell helpers inside the worksheet.
         let bounds = if ed.from_formula_bar { ui.ctx().content_rect() } else { ui.clip_rect() };
         egui::Area::new(id.with("ac")).fixed_pos(below).constrain_to(bounds).order(egui::Order::Tooltip).show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).inner_margin(4.0).show(ui, |ui| {
@@ -380,6 +398,8 @@ pub fn editor_widget(app: &mut SheetApp, ui: &mut egui::Ui, id: egui::Id, font: 
                         }
                         ui.label(egui::RichText::new(")").font(theme::ui_font(12.0)));
                     });
+                    // The description too, so values an argument takes (DATEDIF's units, #363) show
+                    // while it's typed; wrapped to the hint's width.
                     if let Some(desc) = crate::formula_locale::description(&name, ed.locale) {
                         ui.set_max_width(ui.min_rect().width().max(220.0));
                         ui.separator();
