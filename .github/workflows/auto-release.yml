@@ -1,0 +1,33 @@
+name: Simple Auto Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo build --release
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: "GridCraft Build #${{ github.run_number }}"
+          body: |
+            Auto release from commit ${{ github.sha }}
+            ${{ github.event.head_commit.message }}
+          files: target/release/gridcraft
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
