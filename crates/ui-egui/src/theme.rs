@@ -152,7 +152,7 @@ pub const SERIF: &str = "serif";
 pub const MONO: &str = "mono";
 
 pub fn ui_font(size: f32) -> FontId {
-    FontId::new(size, FontFamily::Name(UI.into()))
+    FontId::new(size, FontFamily::Name(CELL.into()))
 }
 pub fn ui_bold(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(UI_BOLD.into()))
@@ -431,7 +431,7 @@ pub fn font_definitions_with(language: crate::i18n::Language, used: &[String]) -
         }
     }
     // Default proportional text in widgets uses the UI font.
-    if let Some(ui) = fonts.families.get(&FontFamily::Name(UI.into())).cloned() {
+    if let Some(ui) = fonts.families.get(&FontFamily::Name(CELL.into())).cloned() {
         fonts.families.insert(FontFamily::Proportional, ui);
     }
     drop_unparseable_fonts(&mut fonts);
@@ -801,7 +801,7 @@ mod tests {
             return; // no system cell font on this machine
         }
         let fb: Vec<String> = fallback_faces(HanOrder::Chinese).into_iter().map(|(k, _)| k.to_string()).collect();
-        for family in [FontFamily::Proportional, FontFamily::Name(UI.into()), FontFamily::Name(UI_BOLD.into()), FontFamily::Name(MONO.into())] {
+        for family in [FontFamily::Proportional, FontFamily::Name(CELL.into()), FontFamily::Name(UI_BOLD.into()), FontFamily::Name(MONO.into())] {
             let chain = fonts.families.get(&family).cloned().unwrap_or_default();
             let at = chain.iter().position(|k| *k == cell);
             assert!(at.is_some(), "{family:?} lacks the cell face: {chain:?}");
@@ -910,7 +910,19 @@ mod tests {
         assert!(!fonts.font_data.contains_key("sys-hebrew"));
         assert!(fonts.families.values().all(|c| !c.iter().any(|k| k == "sys-hebrew")));
         let ctx = egui::Context::default();
-        ctx.set_fonts(fonts);
+        let default_latin = fonts.families.values()
+        .flat_map(|v| v.iter())
+        .find(|n| *n != "Vazirmatn" && !n.contains("emoji") && !n.contains("Emoji"))
+        .cloned();
+    for list in fonts.families.values_mut() {
+        list.retain(|n| n != "Vazirmatn");
+        if let Some(ref lat) = default_latin {
+            list.retain(|n| n != lat);
+            list.insert(0, lat.clone());
+        }
+        list.push("Vazirmatn".to_owned());
+    }
+    ctx.set_fonts(fonts);
         let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
             ui.label("Hebrew עברית");
         });

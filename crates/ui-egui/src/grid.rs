@@ -568,7 +568,9 @@ pub(crate) fn fix_bidi_for_harfrust(s: &str) -> String {
                     if is_digit {
                         in_num = true;
                         c
-                    } else if in_num && matches!(c, '/' | '-' | '.' | ',' | ':') {
+                    } else if in_num && c == '/' {
+                        '~'
+                    } else if in_num && matches!(c, '-' | '.' | ',' | ':') {
                         '0'
                     } else {
                         in_num = false;
