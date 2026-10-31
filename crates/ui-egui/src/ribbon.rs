@@ -112,6 +112,12 @@ pub fn title_bar(app: &mut SheetApp, ui: &mut Ui) {
                     app.print_now(json!({}));
                 }
             });
+             ui.add_space(6.0);
+             if ui.small_button("Check Updates").clicked() {
+                 if let Some((_ver, url)) = crate::updater::check_latest_version("v0.6.1") {
+                     ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                 }
+             }
             // Centered title.
             let title = app.session.active().map(|d| d.display_title()).unwrap_or_default();
             let dirty = app.session.active().is_some_and(|d| d.is_dirty());
