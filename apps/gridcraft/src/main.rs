@@ -178,7 +178,7 @@ fn services() -> Services {
                 .pick_file()
                 .and_then(|p| p.to_str().map(str::to_string))
         })),
-        pick_save: Some(Box::new(|suggested: &str| {
+pick_save: Some(Box::new(|suggested: &str| {
             let path = std::path::Path::new(suggested);
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Book1").to_string();
             // The suggested name's type (an export asks for .pdf, .csv or .html) comes first.
@@ -190,7 +190,13 @@ fn services() -> Services {
             for (label, x) in TYPES.iter().filter(|(_, x)| *x == ext).chain(TYPES.iter().filter(|(_, x)| *x != ext)) {
                 dialog = dialog.add_filter(*label, &[*x]);
             }
-            dialog.save_file().and_then(|p| p.to_str().map(str::to_string))
+            
+            let (sender, receiver) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let result = dialog.save_file().and_then(|p| p.to_str().map(str::to_string));
+                let _ = sender.send(result);
+            });
+            receiver.recv_timeout(std::time::Duration::from_millis(100)).ok().flatten()
         })),
         open_url: Some(Box::new(|url: &str| open_with_system(url))),
         printers: Some(print::discover()),
