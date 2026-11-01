@@ -1,0 +1,26 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Set up Rust & Android Targets
+        run: |
+          rustup target add aarch64-linux-android
+          cargo install cargo-apk
+      - name: Build APK via GitHub Cloud
+        run: cargo apk build --release
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gridcraft-android-apk
+          path: target/android/release/apk/*.apk
